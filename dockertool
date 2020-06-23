@@ -1,0 +1,215 @@
+#!/bin/bash
+
+usage()
+{
+(
+echo "
+Usage: ${0##*/} [-s <container>] [-t <container>] [-l <container>] [-d <container>] [-p <image>] 
+                [-i <tarball>] [-c <image> <container> <shared path> <shared port>] 
+                [-v <container>] [-b <container> <new image>]
+
+#s start the container
+#t stop the container
+#l login/enter to the container
+#d delete container
+#p delete/purge image
+#i create/load image from tarball
+#c create container 
+#v view the container. if container name is wrong, it will list all
+#b backup your container into tar file.
+"
+) 1>&2
+	exit 1
+}
+
+if [[ $# -lt 2 ]] ; then
+	usage	
+fi
+
+create_container()
+{
+	docker_img=$1
+	container=$2
+	path=$3  # this path will be shared between host and docker. path is recommended
+	port=$4  # port is shared with docker and host. provide any port number above 5000
+
+	if [[ $# -lt 4 ]] ; then
+		echo "please provide all the parameters"
+		exit 1
+	fi
+
+	count=$(sudo docker ps -a --filter "name=$container" | wc -l)
+	if [ $count -lt 2 ]; then
+		# container does not exist. create container
+		# set display
+		xhost local:root
+		echo "creating container, smartpic will be started on its own. do ctrl c to come out of shell"
+		# create container
+		sudo docker run -v $path:$path -v /tmp/.X11-unix:/tmp/.X11-unix --name $container --ipc=host --net=host -p $port:$port -e DISPLAY=unix$DISPLAY -it $docker_img
+	fi
+	exit 0
+}
+
+delete_container()
+{
+	container=$1
+	sudo docker stop $container
+	sudo docker rm $container
+	sudo docker ps -a
+	exit 0
+}
+
+purge_image()
+{
+	docker_img=$1
+	sudo docker rmi $docker_img
+	sudo docker images
+	exit
+}
+
+start_container()
+{
+	container=$1
+	sudo docker start $container
+	sudo docker ps -a | grep $container
+	exit 0
+}
+
+stop_container()
+{
+	container=$1
+	sudo docker stop $container
+	sudo docker ps -a | grep $container
+	exit 0
+}
+
+login_container()
+{
+	container=$1
+	sudo docker exec -it $container /bin/bash
+	exit 0
+}
+
+view_containers()
+{
+	container=$1
+	sudo docker ps -a | grep $container
+	if [ $? -ne 0 ]; then
+		sudo docker ps -a
+	fi
+	exit 0
+}
+
+
+load_image_from_tar()
+{
+	docker_img_tarball=$1
+
+	# remove path from filename
+	file=$(basename "$docker_img_tarball")
+
+	# check for extension of tarball
+	if [ ${docker_img_tarball: -3} == ".gz" ]; then
+		docker_img_tar="${file%.*}"
+		echo "unzipping .gz file"
+		gunzip $docker_img_tarball
+	elif [ ${file: -4} == ".tar" ]; then
+		docker_img_tar=$file
+	else
+		echo "docker image extension is not good"
+		exit
+	fi
+
+	# path for tar file
+	working_dir=`pwd`
+	docker_img_tarpath=$working_dir/$docker_img_tar
+	if [ ! -f $docker_img_tarball ] && [ ! -f $docker_img_tarpath ]; then
+		echo "docker image not found. neither .gz not .tar file found"
+		exit 1
+	fi
+
+	docker_img="${docker_img_tar%.*}"
+	sudo docker images | grep "$docker_img"
+	if [ $? -ne 0 ]; then
+		# docker image not found check for docker image path unzip
+		if [ ! -f $docker_img_tarpath ]; then
+			echo "docker tar image does not exists" 
+			exit 1
+		fi
+
+		#load docker image from tar file
+		echo "loading image from tar file"
+		sudo docker load <$docker_img_tarpath
+		sudo docker images | grep "$docker_img"
+	else
+		echo "docker image with same name already exists."
+	fi
+	exit
+}
+
+backup_container()
+{
+	container=$1
+	new_docker_img=$2
+
+	if [[ $# -lt 2 ]] ; then
+		echo "please provide both container and new image name"
+		exit 1
+	fi
+	sudo docker commit $container $new_docker_img
+
+	# save as tar
+	sudo docker save -o $new_docker_img.tar $new_docker_img
+	sudo chmod 744 $new_docker_img.tar
+	exit 1
+}
+
+while getopts "s:t:l:d:p:i:c:v:b:" PARAM; do
+	case "${PARAM}" in
+	s)
+		start_container $2;;
+	t)
+		stop_container $2;;
+	l)
+		login_container $2;;
+	d)
+		delete_container $2;;
+	p)
+		purge_image $2;;
+	i)
+		load_image_from_tar $2;;
+	c)
+		create_container $2 $3 $4 $5;;
+	v)
+		view_containers $2;;
+	b)
+		backup_container $2 $3;;
+	*)
+		usage ;;
+	esac
+done
+shift $((OPTIND-1))
+exit 0
+
+# README
+#echo "To login inside container type on terminal \"sudo docker exec -it smartpic /bin/bash\""
+# To stop container
+#./run.sh -t smartid
+
+# To start container
+#./run.sh -s smartid
+
+# To go inside container/login
+#./run.sh -l smartid
+
+# Create containers
+#./run.sh -c smartid smartid /home2/sudhir/test_images/ 9000
+
+# view all containers
+# ./run.sh -v ALL
+
+# view specific container
+# ./run.sh -v smartid
+
+# Take backup of you container
+# ./run.sh -b smartid smartid:saturday
