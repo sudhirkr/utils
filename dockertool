@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 
 usage()
 {
@@ -45,7 +45,7 @@ create_container()
 		xhost local:root
 		echo "creating container, smartpic will be started on its own. do ctrl c to come out of shell"
 		# create container
-		sudo docker run -v $path:$path -v /tmp/.X11-unix:/tmp/.X11-unix --name $container --ipc=host --net=host -p $port:$port -e DISPLAY=unix$DISPLAY -it $docker_img
+		sudo docker run -v $path:$path -v /tmp/.X11-unix:/tmp/.X11-unix --name $container --ipc=host --net=host --hostname $container --workdir $path --restart always -p $port:$port -e DISPLAY=unix$DISPLAY -it $docker_img
 	fi
 	exit 0
 }
